@@ -1,0 +1,13 @@
+﻿# Archives / backup
+_ARCHIVE/
+*.bak
+*.orig
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
