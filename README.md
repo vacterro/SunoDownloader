@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # 🎵 Suno Downloader
 
@@ -94,6 +94,19 @@ Dedicated **Tags tab** in the widget UI:
 - **Lock year/month** toggle to freeze them manually
 - Save / Reset buttons with flash feedback
 - All settings persisted to Tampermonkey storage — survive page reloads and browser restarts
+
+---
+
+## 📸 Screenshots
+
+### Main Tab
+![Main tab — download controls, spam engine, accounts](screenshots/main.png)
+
+### Templates Tab
+![Templates tab — saved lyrics and style presets](screenshots/templates.png)
+
+### Tags Tab
+![Tags tab — full ID3v2 field editor](screenshots/tags.png)
 
 ---
 
