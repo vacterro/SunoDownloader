@@ -1144,59 +1144,60 @@
                     const T = getTagSettings();
                     const lang = T.language || 'eng';
 
-                    // Title — from track metadata (passed in), never from tags panel (user fills manually)
+                    // Title — from track metadata (passed in)
                     if (titleOverride) writer.setFrame('TIT2', titleOverride);
 
-                    // Artists
-                    if (T.artist)          writer.setFrame('TPE1', [T.artist]);
-                    if (T.album_artist)    writer.setFrame('TPE2', T.album_artist);
-                    if (T.original_artist) writer.setFrame('TOPE', T.original_artist);
-                    if (T.composer)        writer.setFrame('TCOM', [T.composer]);
-                    if (T.lyricist)        writer.setFrame('TEXT', [T.lyricist]);
-                    if (T.conductor)       writer.setFrame('TPE3', T.conductor);
-                    if (T.remixer)         writer.setFrame('TPE4', T.remixer);
+                    // Artists (all supported by browser-id3-writer v4.4.0)
+                    if (T.artist)       writer.setFrame('TPE1', [T.artist]);
+                    if (T.album_artist) writer.setFrame('TPE2', T.album_artist);
+                    if (T.composer)     writer.setFrame('TCOM', [T.composer]);
+                    if (T.lyricist)     writer.setFrame('TEXT', [T.lyricist]);
+                    if (T.conductor)    writer.setFrame('TPE3', T.conductor);
+                    if (T.remixer)      writer.setFrame('TPE4', T.remixer);
 
                     // Album / Release
-                    if (T.album)           writer.setFrame('TALB', T.album);
+                    if (T.album) writer.setFrame('TALB', T.album);
                     if (T.disc) {
                         const discStr = T.disc_total ? `${T.disc}/${T.disc_total}` : T.disc;
                         writer.setFrame('TPOS', discStr);
                     }
 
-                    // Date — auto year/month
-                    if (T.year)            writer.setFrame('TYER', T.year);
-                    if (T.year && T.date)  writer.setFrame('TDRC', `${T.year}-${T.date}`);
-                    if (T.original_year)   writer.setFrame('TORY', T.original_year);
+                    // Date (TDRC / TORY not supported — use TYER only)
+                    if (T.year) writer.setFrame('TYER', T.year);
 
-                    // Genre / Mood
-                    if (T.genre)           writer.setFrame('TCON', T.genre);
-                    if (T.mood)            writer.setFrame('TMOO', T.mood);
+                    // Genre
+                    if (T.genre) writer.setFrame('TCON', [T.genre]);
 
-                    // Rights / Publishing
-                    if (T.copyright)       writer.setFrame('TCOP', T.copyright);
-                    if (T.publisher)       writer.setFrame('TPUB', T.publisher);
-                    if (T.encoded_by)      writer.setFrame('TENC', T.encoded_by);
-                    if (T.encoding_tool)   writer.setFrame('TSSE', T.encoding_tool);
-                    if (T.isrc)            writer.setFrame('TSRC', T.isrc);
+                    // Rights
+                    if (T.copyright) writer.setFrame('TCOP', T.copyright);
+                    if (T.publisher) writer.setFrame('TPUB', T.publisher);
+                    if (T.isrc)      writer.setFrame('TSRC', T.isrc);
+
+                    // Extra fields via TXXX (user-defined text) — all players show these
+                    if (T.mood)            writer.setFrame('TXXX', { description: 'Mood',            value: T.mood });
+                    if (T.original_artist) writer.setFrame('TXXX', { description: 'Original Artist', value: T.original_artist });
+                    if (T.original_year)   writer.setFrame('TXXX', { description: 'Original Year',   value: T.original_year });
+                    if (T.encoded_by)      writer.setFrame('TXXX', { description: 'Encoded by',      value: T.encoded_by });
+                    if (T.encoding_tool)   writer.setFrame('TXXX', { description: 'Encoding tool',   value: T.encoding_tool });
+                    if (T.language)        writer.setFrame('TXXX', { description: 'Language',        value: T.language });
+                    if (T.url)             writer.setFrame('TXXX', { description: 'URL',             value: T.url });
 
                     // Comment
                     if (T.comment) writer.setFrame('COMM', { language: lang, description: '', text: T.comment });
 
-                    // Lyrics (embedded, from track metadata or account field)
+                    // Lyrics
                     if (lyricsText && lyricsText.trim().length > 0) {
                         writer.setFrame('USLT', { language: lang, description: '', lyrics: lyricsText });
                     }
 
-                    // URLs
-                    if (T.url)              writer.setFrame('WXXX', { description: 'Artist', url: T.url });
+                    // URLs (supported link frames)
                     if (T.url_artist)       writer.setFrame('WOAR', T.url_artist);
                     if (T.url_audio_source) writer.setFrame('WOAS', T.url_audio_source);
                     if (T.url_publisher)    writer.setFrame('WPUB', T.url_publisher);
 
-                    // BPM / Key / Language
-                    if (T.bpm)      writer.setFrame('TBPM', T.bpm);
-                    if (T.key)      writer.setFrame('TKEY', T.key);
-                    if (T.language) writer.setFrame('TLAN', T.language);
+                    // BPM / Key
+                    if (T.bpm) writer.setFrame('TBPM', T.bpm);
+                    if (T.key) writer.setFrame('TKEY', T.key);
 
                     writer.addTag();
                     const taggedBlob = new Blob([writer.arrayBuffer], { type: 'audio/mpeg' });
