@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Suno Multi-Account Downloader (Vintage Designer)
 // @namespace    http://tampermonkey.net/
-// @version      9.1.1
-// @description  Vintage Windows 95 dark redesign – bevels, MS Sans Serif, and calm accessibility. Lexical form fix & strict credit drain.
+// @version      9.2.0
+// @description  Vintage Windows 95 dark redesign – bevels, MS Sans Serif, and calm accessibility. Cover art injection support via BACKUP.py
 // @author       You & Claude & Pissed-off old man
 // @match        https://suno.com/*
 // @match        https://accounts.google.com/*
@@ -68,7 +68,8 @@
                 bpm:            '90',
                 key:            '',
                 language:       'rus',
-                title:          ''
+                title:          '',
+                cover_path:     'g:\\__STORE_G\\__BROWSER\\cover_suno.png'
             };
             const stored = JSON.parse(GM_getValue('snd_tag_settings', 'null'));
             if (!stored) return defaults;
@@ -1187,6 +1188,7 @@
                     if (T.encoded_by)      writer.setFrame('TXXX', { description: 'Encoded by',      value: T.encoded_by });
                     if (T.encoding_tool)   writer.setFrame('TXXX', { description: 'Encoding tool',   value: T.encoding_tool });
                     if (T.url)             writer.setFrame('TXXX', { description: 'URL',             value: T.url });
+                    if (T.cover_path)      writer.setFrame('TXXX', { description: 'CoverPath',       value: T.cover_path });
 
                     // --- COMMENT ---
                     if (T.comment) writer.setFrame('COMM', { language: lang, description: '', text: T.comment });
@@ -2193,7 +2195,8 @@
             ${field('ISRC (TSRC)', 'isrc', T.isrc)}
             ${sect('Comment / Lyrics Tag')}
             ${textarea('Comment (COMM)', 'comment', T.comment, 'Embedded comment tag', 4)}
-            ${sect('URLs')}
+            ${sect('URLs / Assets')}
+            ${field('Cover Image Path', 'cover_path', T.cover_path, 'Local path for BACKUP.py injection')}
             ${field('Artist URL (WOAR)', 'url_artist', T.url_artist)}
             ${field('Custom URL (WXXX)', 'url', T.url)}
             ${field('Audio Source (WOAS)', 'url_audio_source', T.url_audio_source)}
