@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Suno Multi-Account Downloader (Vintage Designer)
 // @namespace    http://tampermonkey.net/
-// @version      9.1.0
+// @version      9.1.1
 // @description  Vintage Windows 95 dark redesign – bevels, MS Sans Serif, and calm accessibility. Lexical form fix & strict credit drain.
 // @author       You & Claude & Pissed-off old man
 // @match        https://suno.com/*
@@ -1142,62 +1142,64 @@
                     const arrayBuffer = e.target.result;
                     const writer = new ID3Writer(arrayBuffer);
                     const T = getTagSettings();
-                    const lang = T.language || 'eng';
+                    const lang = (T.language && T.language.match(/^[a-z]{3}$/i)) ? T.language : 'eng';
 
-                    // Title — from track metadata (passed in)
+                    // --- TITLE (string) ---
                     if (titleOverride) writer.setFrame('TIT2', titleOverride);
 
-                    // Artists (all supported by browser-id3-writer v4.4.0)
+                    // --- ARTISTS ---
+                    // TPE1, TCOM, TCON → array of strings
+                    // TPE2, TPE3, TPE4, TEXT → plain string
                     if (T.artist)       writer.setFrame('TPE1', [T.artist]);
                     if (T.album_artist) writer.setFrame('TPE2', T.album_artist);
                     if (T.composer)     writer.setFrame('TCOM', [T.composer]);
-                    if (T.lyricist)     writer.setFrame('TEXT', [T.lyricist]);
+                    if (T.lyricist)     writer.setFrame('TEXT', T.lyricist);   // string, NOT array
                     if (T.conductor)    writer.setFrame('TPE3', T.conductor);
                     if (T.remixer)      writer.setFrame('TPE4', T.remixer);
 
-                    // Album / Release
+                    // --- ALBUM ---
                     if (T.album) writer.setFrame('TALB', T.album);
                     if (T.disc) {
                         const discStr = T.disc_total ? `${T.disc}/${T.disc_total}` : T.disc;
                         writer.setFrame('TPOS', discStr);
                     }
 
-                    // Date (TDRC / TORY not supported — use TYER only)
-                    if (T.year) writer.setFrame('TYER', T.year);
+                    // --- DATE --- TYER expects INTEGER
+                    if (T.year) writer.setFrame('TYER', parseInt(T.year, 10));
 
-                    // Genre
+                    // --- GENRE → array ---
                     if (T.genre) writer.setFrame('TCON', [T.genre]);
 
-                    // Rights
+                    // --- RIGHTS ---
                     if (T.copyright) writer.setFrame('TCOP', T.copyright);
                     if (T.publisher) writer.setFrame('TPUB', T.publisher);
                     if (T.isrc)      writer.setFrame('TSRC', T.isrc);
+                    if (T.language)  writer.setFrame('TLAN', T.language);   // supported — string
 
-                    // Extra fields via TXXX (user-defined text) — all players show these
+                    // --- BPM → INTEGER, KEY → string ---
+                    if (T.bpm) writer.setFrame('TBPM', parseInt(T.bpm, 10));
+                    if (T.key) writer.setFrame('TKEY', T.key);
+
+                    // --- EXTRA FIELDS via TXXX (user-defined) ---
                     if (T.mood)            writer.setFrame('TXXX', { description: 'Mood',            value: T.mood });
                     if (T.original_artist) writer.setFrame('TXXX', { description: 'Original Artist', value: T.original_artist });
                     if (T.original_year)   writer.setFrame('TXXX', { description: 'Original Year',   value: T.original_year });
                     if (T.encoded_by)      writer.setFrame('TXXX', { description: 'Encoded by',      value: T.encoded_by });
                     if (T.encoding_tool)   writer.setFrame('TXXX', { description: 'Encoding tool',   value: T.encoding_tool });
-                    if (T.language)        writer.setFrame('TXXX', { description: 'Language',        value: T.language });
                     if (T.url)             writer.setFrame('TXXX', { description: 'URL',             value: T.url });
 
-                    // Comment
+                    // --- COMMENT ---
                     if (T.comment) writer.setFrame('COMM', { language: lang, description: '', text: T.comment });
 
-                    // Lyrics
+                    // --- LYRICS ---
                     if (lyricsText && lyricsText.trim().length > 0) {
                         writer.setFrame('USLT', { language: lang, description: '', lyrics: lyricsText });
                     }
 
-                    // URLs (supported link frames)
+                    // --- URL LINK FRAMES (plain string) ---
                     if (T.url_artist)       writer.setFrame('WOAR', T.url_artist);
                     if (T.url_audio_source) writer.setFrame('WOAS', T.url_audio_source);
                     if (T.url_publisher)    writer.setFrame('WPUB', T.url_publisher);
-
-                    // BPM / Key
-                    if (T.bpm) writer.setFrame('TBPM', T.bpm);
-                    if (T.key) writer.setFrame('TKEY', T.key);
 
                     writer.addTag();
                     const taggedBlob = new Blob([writer.arrayBuffer], { type: 'audio/mpeg' });
