@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # 🎵 Suno Downloader
 
@@ -7,6 +7,7 @@
 [![Version](https://img.shields.io/badge/version-9.1.0-blue?style=flat-square)](suno_downloader1.js)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-compatible-00485B?style=flat-square&logo=tampermonkey)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[🤍 Support Developer](https://buymeacoffee.com/vacuum34)
 
 Multi-account OAuth automation · Batch MP3/WAV download · Full ID3v2 tagging · Lyrics injection
 
