@@ -4,6 +4,8 @@
 // @version      9.3.5
 // @description  Vintage Windows 95 dark redesign – bevels, MS Sans Serif, and calm accessibility. Cover art injection support via BACKUP.py
 // @author       You & Claude & Pissed-off old man
+// @updateURL    https://raw.githubusercontent.com/vacterro/SunoDownloader/refs/heads/master/suno_downloader1.js
+// @downloadURL  https://raw.githubusercontent.com/vacterro/SunoDownloader/refs/heads/master/suno_downloader1.js
 // @match        https://suno.com/*
 // @match        https://accounts.google.com/*
 // @match        https://login.microsoftonline.com/*
