@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Suno Multi-Account Downloader (Vintage Designer)
 // @namespace    http://tampermonkey.net/
-// @version      9.3.5
-// @description  Vintage Windows 95 dark redesign – bevels, MS Sans Serif, and calm accessibility. Cover art injection support via BACKUP.py
+// @version      9.4.0
+// @description  Vintage Windows 95 dark redesign – bevels, MS Sans Serif, calm accessibility. Two-circle auto chain: first 50 credits per account, then smart cooldown rounds (API 429 catch).
 // @author       You & Claude & Pissed-off old man
 // @match        https://suno.com/*
 // @match        https://accounts.google.com/*
@@ -39,37 +39,37 @@
         try {
             const now = new Date();
             const defaults = {
-                artist:         'potatoddas',
-                album_artist:   'potatoddas',
-                composer:       'potatoddas',
-                lyricist:       'ChatGPT + Grok + Claude + Qwen',
-                original_artist:'potatoddas',
-                conductor:      'potatoddas',
-                remixer:        'potatoddas',
-                featured_artist:'ЛЫБЕЛЬ',
-                album:          '',
-                disc:           '',
-                disc_total:     '',
-                year:           String(now.getFullYear()),
-                date:           String(now.getMonth() + 1).padStart(2, '0'),
-                original_year:  String(now.getFullYear()),
-                genre:          'Hip-hop',
-                mood:           'Groovy',
-                copyright:      'potatoddas',
-                publisher:      'potatoddas',
-                encoded_by:     'potatoddas',
-                encoding_tool:  'Audacity',
-                isrc:           'potatoddas',
-                comment:        'russian, philosophy, beat, bassline, deep male voice, hip hop, rap, discipline, warrior mindset, studio high quality, heavy bass, Deep Sub Bass, mafia, clear natural voice, rhytm, Mafia noir, Dark philosophy, Authoritative tone, calm. Repetitive hypnotic hook, smooth but heavy bounce. Repeatable Hook, Head-Nod Rhythm. Designed for car speakers with strong sub bass and clean dynamics.',
-                url:            'https://www.youtube.com/@potatoddas',
-                url_artist:     'https://www.youtube.com/@potatoddas',
-                url_audio_source:'https://suno.com/create',
-                url_publisher:  'https://vk.com/potatoddas',
-                bpm:            '90',
-                key:            '',
-                language:       'rus',
-                title:          '',
-                cover_path:     'g:\\__STORE_G\\__BROWSER\\cover_suno.png'
+                artist: 'potatoddas',
+                album_artist: 'potatoddas',
+                composer: 'potatoddas',
+                lyricist: 'ChatGPT + Grok + Claude + Qwen',
+                original_artist: 'potatoddas',
+                conductor: 'potatoddas',
+                remixer: 'potatoddas',
+                featured_artist: 'ЛЫБЕЛЬ',
+                album: '',
+                disc: '',
+                disc_total: '',
+                year: String(now.getFullYear()),
+                date: String(now.getMonth() + 1).padStart(2, '0'),
+                original_year: String(now.getFullYear()),
+                genre: 'Hip-hop',
+                mood: 'Groovy',
+                copyright: 'potatoddas',
+                publisher: 'potatoddas',
+                encoded_by: 'potatoddas',
+                encoding_tool: 'Audacity',
+                isrc: 'potatoddas',
+                comment: 'russian, philosophy, beat, bassline, deep male voice, hip hop, rap, discipline, warrior mindset, studio high quality, heavy bass, Deep Sub Bass, mafia, clear natural voice, rhytm, Mafia noir, Dark philosophy, Authoritative tone, calm. Repetitive hypnotic hook, smooth but heavy bounce. Repeatable Hook, Head-Nod Rhythm. Designed for car speakers with strong sub bass and clean dynamics.',
+                url: 'https://www.youtube.com/@potatoddas',
+                url_artist: 'https://www.youtube.com/@potatoddas',
+                url_audio_source: 'https://suno.com/create',
+                url_publisher: 'https://vk.com/potatoddas',
+                bpm: '90',
+                key: '',
+                language: 'rus',
+                title: '',
+                cover_path: 'g:\\__STORE_G\\__BROWSER\\cover_suno.png'
             };
             const stored = JSON.parse(GM_getValue('snd_tag_settings', 'null'));
             if (!stored) return defaults;
@@ -103,7 +103,7 @@
         running: false, startTime: null, currentGroup: 0, currentBurstInGroup: 0,
         totalGroups: 999, burstsPerGroup: 2, burstSize: 5, burstInterval: 75,
         burstGroupInterval: 500, cooldown: 60, outOfCredits: false,
-        burstTimer: null, cooldownTimer: null
+        burstTimer: null, cooldownTimer: null, cooldownUntil: 0
     };
 
     function getSpamProfiles() { try { return JSON.parse(GM_getValue('snd_spam_profiles', 'null')) || {}; } catch (e) { return {}; } }
@@ -192,15 +192,17 @@
     function getAccounts() {
         try {
             const raw = JSON.parse(GM_getValue('snd_accounts', '[]'));
-            return raw.map(a => ({
-                ...a,
-                done: Boolean(a.done),
-                enabled: a.enabled !== undefined ? Boolean(a.enabled) : true,
-                autoFill: Boolean(a.autoFill),
-                format: a.format || 'mp3',
-                password: a.password || '',
-                lastEdited: a.lastEdited || null
-            }));
+        return raw.map(a => ({
+            ...a,
+            done: Boolean(a.done),
+            enabled: a.enabled !== undefined ? Boolean(a.enabled) : true,
+            autoFill: Boolean(a.autoFill),
+            format: a.format || 'mp3',
+            password: a.password || '',
+            lastEdited: a.lastEdited || null,
+            first50Done: Boolean(a.first50Done),
+            cooldownUntil: Number(a.cooldownUntil) || 0
+        }));
         } catch (e) { return []; }
     }
     function saveAccounts(arr) { GM_setValue('snd_accounts', JSON.stringify(arr)); }
@@ -225,6 +227,281 @@
     function uid() { return Math.random().toString(36).slice(2, 9); }
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+    let genWaiter = null;
+    let lastCooldownLogTs = 0;
+    const chainSession = { running: false };
+
+    function mmss(s) {
+        s = Math.max(0, Math.floor(s));
+        const m = Math.floor(s / 60);
+        return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function waitGenResult(timeoutMs) {
+        return new Promise((resolve) => {
+            genWaiter = { resolve, ts: Date.now() };
+            setTimeout(() => {
+                if (genWaiter) { const w = genWaiter; genWaiter = null; w.resolve('timeout'); }
+            }, timeoutMs);
+        });
+    }
+
+    function resolveGenWaiter(result) {
+        if (genWaiter) { const w = genWaiter; genWaiter = null; w.resolve(result); }
+    }
+
+    function extractRetryAfter(body, headers) {
+        let secs = null;
+        try {
+            const ha = headers && headers['retry-after'];
+            if (ha) {
+                if (/^\d+(\.\d+)?$/.test(String(ha))) secs = parseFloat(ha);
+                else { const d = new Date(ha); if (!isNaN(d.getTime())) secs = Math.max(0, (d.getTime() - Date.now()) / 1000); }
+            }
+        } catch (e) { }
+        if (secs === null && body) {
+            const m = String(body).match(/"(?:retry_after|retryAfter|seconds_left|wait_time|wait_seconds|cooldown_seconds|cooldown_seconds_left|reset_in|available_in|rate_limit_retry_after)"\s*:\s*(\d+(?:\.\d+)?)/i);
+            if (m) secs = parseFloat(m[1]);
+        }
+        if (secs === null && body) {
+            const m = String(body).match(/(\d+)\s*(?:minute|min|second|sec|hour)s?\b/i);
+            if (m) {
+                const n = parseFloat(m[1]);
+                secs = /hour/i.test(m[0]) ? n * 3600 : /min/i.test(m[0]) ? n * 60 : n;
+            }
+        }
+        if (secs === null) secs = 600;
+        return Math.min(7200, Math.max(60, Math.round(secs)));
+    }
+
+    async function confirmGenerationByCredits(prevCredits, timeoutMs) {
+        const start = Date.now();
+        while (Date.now() - start < (timeoutMs || 12000)) {
+            await sleep(1500);
+            const now = await fetchCredits();
+            if (now !== null && prevCredits !== null && now < prevCredits - 5) return true;
+        }
+        return false;
+    }
+
+    function handleCooldownDetected(retryAfterSecs, sourceUrl) {
+        const until = Date.now() + retryAfterSecs * 1000;
+        spamState.cooldownUntil = until;
+        if (Date.now() - lastCooldownLogTs > 30000) {
+            lastCooldownLogTs = Date.now();
+            addLog('[API] Cooldown caught: ' + retryAfterSecs + 's' + (sourceUrl ? ' (' + sourceUrl + ')' : ''), '#f59e0b');
+        }
+        try {
+            const auto = getAuto();
+            const accounts = getAccounts();
+            if (auto.currentIdx !== undefined && accounts[auto.currentIdx]) {
+                accounts[auto.currentIdx].cooldownUntil = until;
+                accounts[auto.currentIdx].cooldownSource = sourceUrl || '';
+                saveAccounts(accounts);
+                renderAccounts();
+            }
+        } catch (e) { }
+        return until;
+    }
+
+    function reportApiResult(status, body, url, headers) {
+        try {
+            if (!url || !url.includes('studio-api-prod.suno.com')) return;
+            const isGen = /generate/i.test(url);
+            const low = String(body || '').toLowerCase();
+            const creditPat = /(not enough credits|insufficient credits|out of credits|insufficient balance|no credits left|credits required|you .{0,40}credit)/i;
+            const cdPat = /(rate limit|rate_limit|too many|slow down|cooldown|generation limit|try again later|temporarily)/i;
+            let kind = null;
+            let retryAfter = null;
+            if (status === 429) {
+                kind = 'cooldown';
+                retryAfter = extractRetryAfter(body, headers);
+            } else if (status >= 400 && low) {
+                if (creditPat.test(low) && !cdPat.test(low)) {
+                    kind = 'nocredits';
+                } else if (cdPat.test(low)) {
+                    kind = 'cooldown';
+                    retryAfter = extractRetryAfter(body, headers);
+                } else if (isGen) {
+                    kind = 'error';
+                }
+            } else if (isGen && status >= 200 && status < 300) {
+                kind = 'ok';
+            }
+            if (!kind) return;
+            if (kind === 'cooldown') handleCooldownDetected(retryAfter, url);
+            resolveGenWaiter(kind);
+        } catch (e) { }
+    }
+
+    function findCreateBtn() {
+        const candidates = [...document.querySelectorAll('button, [role="button"]')];
+        return candidates.find(b => /^create$/i.test(b.textContent.trim()) && !isInsideSearchOrHeader(b)) ||
+            candidates.find(b => /create/i.test(b.textContent.trim()) && b.type !== 'reset' && !isInsideSearchOrHeader(b)) ||
+            document.querySelector('[data-testid="create-button"]') ||
+            null;
+    }
+
+    async function clickCreateSmart(creditsBefore, retries) {
+        const maxRetries = retries || 3;
+        for (let r = 0; r < maxRetries; r++) {
+            const btn = findCreateBtn();
+            if (!btn) { await sleep(2000); continue; }
+            const waiter = waitGenResult(20000);
+            btn.click();
+            const res = await waiter;
+            if (res === 'ok' || res === 'cooldown' || res === 'nocredits' || res === 'error') return res;
+            const dropped = await confirmGenerationByCredits(creditsBefore, 12000);
+            if (dropped) return 'ok';
+            if (!spamState.running && !chainSession.running) return 'timeout';
+            await sleep(1000);
+        }
+        return 'timeout';
+    }
+
+    async function smartBurst(maxClicks) {
+        let ok = 0;
+        let creditsBefore = await fetchCredits();
+        for (let i = 0; i < maxClicks; i++) {
+            if (cancelRequested) break;
+            const res = await clickCreateSmart(creditsBefore, 3);
+            if (res === 'ok') {
+                ok++;
+                creditsBefore = await fetchCredits();
+                await sleep(500);
+            } else if (res === 'cooldown') {
+                addLog('Cooldown caught after ' + ok + ' generations. Stopping burst.', '#f59e0b');
+                break;
+            } else if (res === 'nocredits') {
+                addLog('Out of credits during burst.', '#ef4444');
+                break;
+            } else {
+                addLog('Generation ' + (i + 1) + ' failed (' + res + '). Stopping burst.', '#f59e0b');
+                break;
+            }
+        }
+        return ok;
+    }
+
+    async function waitForCooldownCountdown(until) {
+        setStatus('Circle 2: cooldown until ' + new Date(until).toLocaleTimeString() + '. Waiting...');
+        while (Date.now() < until && !cancelRequested && getAuto().chainActive) {
+            const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+            updateSpamStatusDisplay('Cooldown ' + mmss(left) + ' left...');
+            await sleep(1000);
+        }
+        try {
+            const accounts = getAccounts();
+            const a = accounts[getAuto().currentIdx];
+            if (a && a.cooldownUntil === until) { a.cooldownUntil = 0; saveAccounts(accounts); renderAccounts(); }
+        } catch (e) { }
+        if (spamState.cooldownUntil === until) spamState.cooldownUntil = 0;
+        setStatus('Cooldown over. Generating...');
+    }
+
+    async function advanceChain(reason) {
+        const auto = getAuto();
+        const accounts = getAccounts();
+        const enabled = accounts.map((a, i) => ({ a, i })).filter(x => x.a.enabled && !x.a.done);
+        if (!enabled.length) {
+            addLog('[CHAIN] All enabled accounts exhausted. Chain finished. Go grab a dumbbell.', '#22c55e');
+            setStatus('All accounts done. Chain finished.');
+            saveAuto({ chainEnabled: true, chainActive: false, circle: 1 });
+            return;
+        }
+        let circle = Number(auto.circle || 1);
+        if (circle === 1 && enabled.every(x => x.a.first50Done)) {
+            circle = 2;
+            addLog('[CHAIN] Circle 1 complete — all first 50 credits spent. Entering Circle 2 (cooldown rounds).', '#f59e0b');
+        }
+        const next = circle === 1 ? enabled.find(x => !x.a.first50Done) : enabled[0];
+        if (!next) { addLog('[CHAIN] No next account found. Stuck.', '#ef4444'); return; }
+        addLog('[CHAIN] Moving to: ' + (next.a.name || next.a.email) + ' (Circle ' + circle + ')', '#d4a574');
+        setStatus('Signing out and swapping accounts...');
+        saveAuto({ ...auto, active: true, chainActive: true, chainEnabled: true, circle, currentIdx: next.i, step: 'signout_pending', oauthVisited: false, reloginAttempts: 0 });
+        await sleep(1000);
+        await signOutClerk();
+        await sleep(1500);
+        saveAuto({ ...auto, active: true, chainActive: true, chainEnabled: true, circle, currentIdx: next.i, step: 'login_pending', oauthVisited: false, reloginAttempts: 0 });
+        unsafeWindow.location.href = 'https://suno.com/sign-in';
+    }
+
+    async function runAutoChain() {
+        const auto = getAuto();
+        if (!auto.chainActive) return;
+        if (chainSession.running) return;
+        const accounts = getAccounts();
+        const idx = auto.currentIdx;
+        const acc = accounts[idx];
+        if (!acc || acc.done) { await advanceChain('no-active-account'); return; }
+        chainSession.running = true;
+        try {
+            const circle = Number(auto.circle || 1);
+            if (circle === 1 && !acc.first50Done) {
+                addLog('[CHAIN C1] ' + (acc.name || acc.email) + ': first 50 credits (5 generations)', '#d4a574');
+                setStatus('[C1] ' + (acc.name || acc.email) + ': generating 50 credits...');
+                const ok = await smartBurst(5);
+                if (ok > 0) {
+                    await waitForGenerations(200);
+                    const n = Math.min(10, ok * 2);
+                    addLog('[CHAIN C1] Downloading ' + n + ' songs...', '#d4a574');
+                    await runDownload(n, acc.format || 'mp3', acc);
+                }
+                const fresh = getAccounts();
+                if (fresh[idx]) {
+                    fresh[idx].first50Done = true;
+                    fresh[idx].cooldownUntil = spamState.cooldownUntil || fresh[idx].cooldownUntil || 0;
+                    saveAccounts(fresh);
+                    renderAccounts();
+                }
+                addLog('[CHAIN C1] ' + (acc.name || acc.email) + ' done (' + ok + ' generations). Next account.', '#22c55e');
+                if (!getAuto().chainActive) { addLog('[CHAIN] Chain disabled mid-round. Staying put.', '#f59e0b'); return; }
+                await advanceChain('circle1-done');
+            } else if (circle === 2) {
+                addLog('[CHAIN C2] ' + (acc.name || acc.email) + ': cooldown rounds started', '#d4a574');
+                let gens = 0;
+                while (gens < 6 && !cancelRequested && getAuto().chainActive) {
+                    const credits = await fetchCredits();
+                    if (credits === null) { await sleep(4000); continue; }
+                    if (credits < 10) break;
+                    const cur = getAccounts()[idx];
+                    if (cur && cur.cooldownUntil > Date.now()) await waitForCooldownCountdown(cur.cooldownUntil);
+                    if (cancelRequested || !getAuto().chainActive) break;
+                    const before = await fetchCredits();
+                    const res = await clickCreateSmart(before, 2);
+                    gens++;
+                    if (res === 'cooldown') { addLog('[CHAIN C2] Cooldown active. Waiting it out...', '#f59e0b'); continue; }
+                    if (res === 'nocredits') break;
+                    if (res === 'ok') await waitForGenerations();
+                    else { addLog('[CHAIN C2] Generation hiccup (' + res + '). Continuing...', '#f59e0b'); await sleep(2000); }
+                }
+                addLog('[CHAIN C2] Credits exhausted. Downloading the rest...', '#d4a574');
+                await runDownload(10, acc.format || 'mp3', acc);
+                const fresh2 = getAccounts();
+                if (fresh2[idx]) {
+                    fresh2[idx].done = true;
+                    fresh2[idx].cooldownUntil = 0;
+                    saveAccounts(fresh2);
+                    renderAccounts();
+                }
+                addLog('[CHAIN C2] ' + (acc.name || acc.email) + ' finished. Next account.', '#22c55e');
+                if (!getAuto().chainActive) { addLog('[CHAIN] Chain disabled mid-round. Staying put.', '#f59e0b'); return; }
+                await advanceChain('circle2-done');
+            } else {
+                await advanceChain('c1-already-done');
+            }
+        } catch (e) {
+            addLog('[CHAIN] Engine choked: ' + e.message + '. Retrying...', '#ef4444');
+            await sleep(3000);
+        } finally {
+            chainSession.running = false;
+            const cur = getAuto();
+            if (cur.chainActive && cur.currentIdx !== undefined && capturedAuth && !cancelRequested) {
+                setTimeout(() => runAutoChain(), 5000);
+            }
+        }
+    }
+
     function parseHtml(str) {
         if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -238,9 +515,11 @@
             reloginInFlight = false;
             oauthReturnProcessed = false;
             isWorking = false;
-            isWrappingUp = false;
+isWrappingUp = false;
             cancelRequested = false;
             spamState.running = false;
+            spamState.cooldownUntil = 0;
+            chainSession.running = false;
             if (spamState.burstTimer) clearTimeout(spamState.burstTimer);
             if (spamState.cooldownTimer) clearTimeout(spamState.cooldownTimer);
             outOfCreditsLogged = false;
@@ -302,7 +581,18 @@
                         }
                     } catch (e) { }
                 }
-                return _origFetch(...args);
+                const res = await _origFetch(...args);
+                try {
+                    if (url.includes('studio-api-prod.suno.com')) {
+                        const clone = res.clone();
+                        clone.text().then(t => {
+                            const hdr = {};
+                            try { res.headers.forEach((v, k) => hdr[k.toLowerCase()] = v); } catch (e) { }
+                            reportApiResult(res.status, t, url, hdr);
+                        }).catch(() => { });
+                    }
+                } catch (e) { }
+                return res;
             };
         } catch (e) { }
 
@@ -328,6 +618,14 @@
                         GM_setValue('snd_auth', capturedAuth);
                         updateDot();
                     }
+                    try {
+                        this.addEventListener('load', () => {
+                            try {
+                                const ha = this.getResponseHeader && this.getResponseHeader('retry-after');
+                                reportApiResult(this.status, this.responseText || '', this._snd_url || '', ha ? { 'retry-after': ha } : {});
+                            } catch (e) { }
+                        });
+                    } catch (e) { }
                 }
                 return _origSend.call(this, ...args);
             };
@@ -371,15 +669,11 @@
         const acc = accounts[auto.currentIdx];
         if (!acc || acc.provider !== 'google') return;
         saveAuto({ ...auto, oauthVisited: true });
-        
+
         const targetEmail = acc.email.toLowerCase().trim();
         let overlayShown = false;
-        // Grace before falling back to "Use another account": Google's account
-        // chooser tiles render a beat after the page. Clicking the fallback too
-        // early navigates off the chooser (looks like it "disappeared"), forcing
-        // a manual retype. Wait a few ticks for the target tile to appear first.
         let noTileTicks = 0;
-        const NO_TILE_GRACE = 6; // ~3s at 500ms/tick
+        const NO_TILE_GRACE = 6;
 
         const isElemVisible = (el) => {
             if (!el) return false;
@@ -391,10 +685,10 @@
 
         const checkConsent = () => {
             const allowBtn = document.querySelector('#submit_approve_access, button[type="submit"][name="submit"]');
-            if (allowBtn && !allowBtn.disabled && isElemVisible(allowBtn)) { 
-                console.log('[SND] Google consent page, clicking Allow.'); 
+            if (allowBtn && !allowBtn.disabled && isElemVisible(allowBtn)) {
+                console.log('[SND] Google consent page, clicking Allow.');
                 if (!allowBtn.dataset.sndClicked) { allowBtn.dataset.sndClicked = 'true'; allowBtn.click(); }
-                return true; 
+                return true;
             }
             const continueBtn = Array.from(document.querySelectorAll('button')).find(b => /continue|allow/i.test(b.innerText || b.textContent) && !b.disabled && isElemVisible(b));
             if (continueBtn) {
@@ -412,7 +706,7 @@
             }
 
             const isGooglePasswordPage = !!(document.querySelector('input[type="password"]') || document.querySelector('[data-page-id="passwordEntry"]') || /\/pwd|\/challenge\/pwd|passwordEntry/i.test(location.pathname + location.search));
-            
+
             if (isGooglePasswordPage) {
                 const pwdEl = document.querySelector('input[type="password"]');
                 if (pwdEl && isElemVisible(pwdEl)) {
@@ -475,8 +769,6 @@
                 return;
             }
 
-            // Target tile not found yet. Give the chooser time to render before
-            // falling back — otherwise we bail off the chooser prematurely.
             noTileTicks++;
             if (noTileTicks < NO_TILE_GRACE) return;
 
@@ -503,14 +795,6 @@
         saveAuto({ ...auto, oauthVisited: true });
         if (enforceCurrentMicrosoftPrompt()) return;
 
-        // Initialize Microsoft login flow state to prevent infinite loops
-        // This gets reset when we successfully navigate away from Microsoft login domain
-        const flowStep = sessionStorage.getItem('ms_current_flow_step');
-        if (flowStep === 'completed_login') {
-            // Already completed login successfully on this flow - prevent reprocessing
-            return;
-        }
-
         const targetEmail = acc.email.toLowerCase().trim();
         let overlayShown = false;
 
@@ -523,9 +807,28 @@
         };
 
         const msWatchdog = setInterval(() => {
-            // "Set up your security key" / "Add a way to sign in" registration nag.
-            // The API-level block stops the OS dialog; this dismisses the page so we
-            // don't stall on it. Prefer an explicit skip, else Cancel/Back.
+            // HIGHEST PRIORITY: Target locked. Если поле пароля уже на экране, шлём нахер все проверки и вбиваем его.
+            const pwdEl = document.querySelector('input[type="password"], input[name="passwd"], input[name="password"], #i0118');
+            if (pwdEl && isElemVisible(pwdEl)) {
+                if (acc.password) {
+                    if (!pwdEl.dataset.sndFilled) {
+                        console.log("[MS-Login] Slapping the password in there.");
+                        pwdEl.dataset.sndFilled = "true";
+                        setNativeValue(pwdEl, acc.password);
+                        setTimeout(() => {
+                            const nextBtn = document.querySelector('#idSIButton9, input[type="submit"], button[type="submit"]');
+                            if (nextBtn && isElemVisible(nextBtn)) nextBtn.click();
+                        }, 600);
+                    }
+                } else {
+                    if (!overlayShown) {
+                        showPageOverlay(`Enter Microsoft password for:\n${acc.email}\n\nEnter the damn password, then click "Yes" when it asks to stay signed in.`);
+                        overlayShown = true;
+                    }
+                }
+                return;
+            }
+
             const skipReg = document.querySelector('#iShowSkip, #iCancel')
                 || Array.from(document.querySelectorAll('a, button, span[role="button"], input[type="button"]'))
                     .find(el => /skip for now|skip this|not now|no thanks|maybe later|i.?ll do this later/i.test(el.innerText || el.value || el.textContent || '') && isElemVisible(el));
@@ -614,49 +917,12 @@
             const pwdSwitch = document.querySelector('#idA_PWD_SwitchToPassword, #signInAnotherWay, a[data-bind*="switchToPassword"]');
             if (pwdSwitch && isElemVisible(pwdSwitch)) {
                 console.log("[MS-Login] Forcing password mode over authenticator app.");
-                pwdSwitch.click();
+                if (!pwdSwitch.dataset.sndClicked) {
+                    pwdSwitch.dataset.sndClicked = 'true';
+                    pwdSwitch.click();
+                }
                 return;
             }
-
-// Original problematic section removed for fix
-        // Replaced with infinite loop prevention logic
-
-        // Flow control: Track when we've completed a password enter attempt
-        const flowStep = sessionStorage.getItem('ms_current_flow_step');
-        if (flowStep === 'completed_login') {
-            // We've already tried and succeeded in login flow, skip processing
-            return;
-        }
-
-        const pwdEl = document.querySelector('input[type="password"], input[name="passwd"], input[name="password"], #i0118');
-        if (pwdEl && isElemVisible(pwdEl) && !pwdEl.dataset.sndFilled) {
-            if (acc.password) {
-                // Prevent multiple rapid attempts that cause loops
-                const lastAttempt = sessionStorage.getItem('ms_last_pwd_attempt');
-                if (lastAttempt && Date.now() - parseInt(lastAttempt) < 2000) {
-                    return;  // Allow 2 second cooldown between password submission attempts
-                }
-                sessionStorage.setItem('ms_last_pwd_attempt', Date.now());
-
-                console.log("[MS-Login] Slapping the password in there.");
-                pwdEl.dataset.sndFilled = "true";
-                setNativeValue(pwdEl, acc.password);
-                setTimeout(() => {
-                    const nextBtn = document.querySelector('#idSIButton9, input[type="submit"], button[type="submit"]');
-                    if (nextBtn && isElemVisible(nextBtn)) {
-                        nextBtn.click();
-                        // Mark successful login flow completion to prevent re-entry
-                        sessionStorage.setItem('ms_current_flow_step', 'completed_login');
-                    }
-                }, 700);
-            } else {
-                if (!overlayShown) {
-                    showPageOverlay(`Enter Microsoft password for:\n${acc.email}\n\nEnter the damn password, then click "Yes" when it asks to stay signed in.`);
-                    overlayShown = true;
-                }
-            }
-            return;
-        }
 
             const chooseTitle = document.querySelector('h1, h2, .text-title');
             const isChooseScreen = chooseTitle && /choose an account/i.test(chooseTitle.innerText || '');
@@ -709,33 +975,7 @@
             if (otherLink && isElemVisible(otherLink)) otherLink.click();
         }, 1000);
 
-// Safety cap: on a stuck/unexpected Microsoft page the interval would
-// otherwise poll forever, burning CPU. A successful login redirects away
-// (killing it with the page); this only bounds the dead-end case.
-setTimeout(() => {
-    clearInterval(msWatchdog);
-
-    // Reset flow state when we've successfully logged in
-    // This prevents re-processing when we navigate back to start
-    if (window.location.hostname.endsWith('login.live.com') || 
-        window.location.hostname.includes('microsoftonline.com')) {
-        const currentHost = window.location.hostname;
-        const=getCurrentHostnameHash(currentHost);
-        // If we're back to square one after completing flow, reset state
-        sessionStorage.setItem('ms_current_flow_step', 'completed_login');
-    }
-}, 120000);
-
-// Utility to hash hostname strings
-function getCurrentHostnameHash(host) {
-    let hash = 0;
-    for (let i = 0; i < host.length; i++) {
-        const char = host.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32-bit integer
-    }
-    return hash;
-}
+        setTimeout(() => clearInterval(msWatchdog), 120000);
     }
 
     function isMicrosoftAutoLogin() {
@@ -790,16 +1030,8 @@ function getCurrentHostnameHash(host) {
         rewriteLinksAndForms();
     }
 
-    // Kill the native Windows Hello / passkey (WebAuthn) dialog before Microsoft's
-    // page scripts can invoke it. Runs at document-start so the OS window never
-    // pops; the rejection makes Microsoft fall back to "other ways to sign in",
-    // which the msWatchdog then steers to password. Only active during our own
-    // Microsoft auto-login, so genuine passkey use elsewhere is untouched.
     function installWebAuthnBlocker() {
-        if (!IS_MSFT) return; // only Microsoft login domains
-        // Decide at CALL time, not install time: at document-start GM storage may
-        // not be readable yet, which previously skipped the whole block. Wrapping
-        // unconditionally and gating inside is race-proof.
+        if (!IS_MSFT) return;
         const shouldBlock = () => { try { return isMicrosoftAutoLogin(); } catch (e) { return false; } };
         const reject = (why) => { console.log('[MS-Login] Suppressing ' + why + ' — no Windows security dialog, falling back to password.'); return Promise.reject(new DOMException('WebAuthn suppressed by SND', 'NotAllowedError')); };
         const patch = (obj, name) => {
@@ -814,8 +1046,6 @@ function getCurrentHostnameHash(host) {
         };
         try {
             const creds = unsafeWindow.navigator && unsafeWindow.navigator.credentials;
-            // Instance-level (what the page actually uses) + prototype-level (in case
-            // a script grabs a fresh CredentialsContainer method reference).
             patch(creds, 'get');
             patch(creds, 'create');
             patch(unsafeWindow.CredentialsContainer && unsafeWindow.CredentialsContainer.prototype, 'get');
@@ -881,7 +1111,6 @@ function getCurrentHostnameHash(host) {
     async function waitForCreateForm() {
         const start = Date.now();
         while (Date.now() - start < 15000) {
-            // Suno uses a Lexical contenteditable div — multiple possible selectors
             const lexical = document.querySelector(
                 'div[data-lexical-editor="true"], div[aria-label="Lyrics editor"], ' +
                 'div[aria-label*="lyric" i][contenteditable="true"], div[contenteditable="true"][data-testid*="lyric" i], ' +
@@ -901,18 +1130,15 @@ function getCurrentHostnameHash(host) {
     }
 
     async function injectTextIntoLexical(el, text) {
-        // Try clipboard-based paste first — most reliable for Lexical/ProseMirror
         if (el.isContentEditable) {
             el.focus();
             await sleep(50);
-            // Select all existing content first
             const sel = unsafeWindow.getSelection();
             const range = document.createRange();
             range.selectNodeContents(el);
             sel.removeAllRanges();
             sel.addRange(range);
             await sleep(30);
-            // Try clipboard API approach via DataTransfer
             try {
                 const dt = new DataTransfer();
                 dt.setData('text/plain', text);
@@ -920,8 +1146,7 @@ function getCurrentHostnameHash(host) {
                 await sleep(80);
                 const check = el.innerText || el.textContent || '';
                 if (check.trim().length > 0) return true;
-            } catch (e) { /* fall through */ }
-            // execCommand fallback (deprecated but still works in Tampermonkey context)
+            } catch (e) { }
             try {
                 document.execCommand('selectAll', false, null);
                 const ok = document.execCommand('insertText', false, text);
@@ -931,8 +1156,7 @@ function getCurrentHostnameHash(host) {
                     const check2 = el.innerText || el.textContent || '';
                     if (check2.trim().length > 0) return true;
                 }
-            } catch (e2) { /* fall through */ }
-            // Last resort: directly manipulate innerText and fire synthetic events
+            } catch (e2) { }
             el.innerText = text;
             el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1131,16 +1355,11 @@ function getCurrentHostnameHash(host) {
         const acc = accounts[auto.currentIdx];
         if (!acc) { saveAuto({}); return; }
 
-        // Guard: OAuth returned, but did it actually produce a session? A blocked or
-        // cancelled passkey / security-key step bounces us back to suno logged-out
-        // with oauthVisited still set. Completing here would falsely go idle at
-        // "no auth". Give Clerk up to ~8s to hydrate; if still no session, retry the
-        // login (capped in restartLoginAfterCachedSession) instead of dead-ending.
         const hasSession = !!capturedAuth || getSunoLoggedInEmails().length > 0;
         if (!hasSession) {
             const firstSeen = auto.oauthReturnAt || Date.now();
             if (!auto.oauthReturnAt) { saveAuto({ ...auto, oauthReturnAt: firstSeen }); return; }
-            if (Date.now() - firstSeen < 8000) return; // still hydrating, check again next poll
+            if (Date.now() - firstSeen < 8000) return;
             console.warn('[SND] OAuth returned without a session (passkey/other interruption) — retrying login.');
             restartLoginAfterCachedSession('oauth-return-no-session');
             return;
@@ -1160,7 +1379,10 @@ function getCurrentHostnameHash(host) {
         addLog(`Logged in: ${acc.name || acc.email}. About damn time.`, '#22c55e');
         saveAuto({ ...updated, step: 'idle', active: false, oauthJustCompleted: false });
 
-        if (GM_getValue('snd_auto_spam_fresh', false) && !spamState.running && isSunoCreatePath()) {
+        if (getAuto().chainActive && !chainSession.running && isSunoCreatePath()) {
+            addLog('Chain active. Starting account round...', '#d4a574');
+            setTimeout(() => runAutoChain(), 1500);
+        } else if (GM_getValue('snd_auto_spam_fresh', false) && !spamState.running && isSunoCreatePath()) {
             const credits = await fetchCredits();
             if (credits !== null && credits >= 45) {
                 addLog('Fresh credits detected. Auto-starting spam.', '#22c55e');
@@ -1223,35 +1445,19 @@ function getCurrentHostnameHash(host) {
 
     async function afterDownloadChain() {
         const accounts = getAccounts();
-        const enabledNotDone = accounts.map((a, i) => ({ a, i })).filter(x => x.a.enabled && !x.a.done);
-        if (enabledNotDone.length === 0) {
+        const enabled = accounts.map((a, i) => ({ a, i })).filter(x => x.a.enabled && !x.a.done);
+        if (enabled.length === 0) {
             addLog('All enabled accounts are done! Chain finished. Go grab a dumbbell.', '#22c55e');
             setStatus('All accounts done. Chain finished.');
             saveAuto({ chainEnabled: true });
             return;
         }
-
-        const ready = enabledNotDone.filter(x => !x.a.cooldownUntil || Date.now() >= x.a.cooldownUntil);
-        let nextEntry;
-        
-        if (ready.length > 0) {
-            nextEntry = ready[0];
-        } else {
-            const earliest = enabledNotDone.sort((x, y) => x.a.cooldownUntil - y.a.cooldownUntil)[0];
-            const waitMs = earliest.a.cooldownUntil - Date.now();
-            const waitMins = Math.ceil(waitMs / 60000);
-            addLog(`All remaining accounts are on cooldown. Waiting ${waitMins} mins for ${earliest.a.email}...`, '#f59e0b');
-            setStatus(`Cooldown: ${waitMins}m...`);
-            await sleep(waitMs + 1000);
-            await afterDownloadChain();
-            return;
-        }
-
+        const nextEntry = enabled[0];
         addLog(`Starting auto-chain, moving to: ${nextEntry.a.name || nextEntry.a.email}`, '#d4a574');
         setStatus('Signing out and swapping accounts...');
-        saveAuto({ active: true, chainEnabled: true, currentIdx: nextEntry.i, step: 'signout_pending', oauthVisited: false, reloginAttempts: 0 });
+        saveAuto({ ...getAuto(), active: true, chainEnabled: true, currentIdx: nextEntry.i, step: 'signout_pending', oauthVisited: false, reloginAttempts: 0 });
         await sleep(1000); await signOutClerk(); await sleep(1500);
-        saveAuto({ active: true, chainEnabled: true, currentIdx: nextEntry.i, step: 'login_pending', oauthVisited: false, reloginAttempts: 0 });
+        saveAuto({ ...getAuto(), active: true, chainEnabled: true, currentIdx: nextEntry.i, step: 'login_pending', oauthVisited: false, reloginAttempts: 0 });
         unsafeWindow.location.href = 'https://suno.com/sign-in';
     }
 
@@ -1259,11 +1465,11 @@ function getCurrentHostnameHash(host) {
     function toggleAccountEnabled(idx) { const accounts = getAccounts(); if (idx >= 0 && idx < accounts.length) { accounts[idx].enabled = !accounts[idx].enabled; saveAccounts(accounts); renderAccounts(); } }
     async function loginAccount(idx) {
         const accounts = getAccounts(); const acc = accounts[idx]; if (!acc) return;
-        saveAuto({ active: false, pendingLogin: true, currentIdx: idx, step: 'signout_pending', oauthVisited: false, reloginAttempts: 0 });
+        saveAuto({ ...getAuto(), active: false, pendingLogin: true, currentIdx: idx, step: 'signout_pending', oauthVisited: false, reloginAttempts: 0 });
         GM_setValue('snd_auth', null); capturedAuth = null;
         showPageOverlay(`Clearing current session...\nNext: ${acc.email}`);
         await signOutClerk(); await sleep(800);
-        saveAuto({ active: false, pendingLogin: true, currentIdx: idx, step: 'login_pending', oauthVisited: false, reloginAttempts: 0 });
+        saveAuto({ ...getAuto(), active: false, pendingLogin: true, currentIdx: idx, step: 'login_pending', oauthVisited: false, reloginAttempts: 0 });
         unsafeWindow.location.href = 'https://suno.com/sign-in';
     }
 
@@ -1305,63 +1511,49 @@ function getCurrentHostnameHash(host) {
                     const T = getTagSettings();
                     const lang = (T.language && T.language.match(/^[a-z]{3}$/i)) ? T.language : 'eng';
 
-                    // --- TITLE (string) ---
                     if (titleOverride) writer.setFrame('TIT2', titleOverride);
 
-                    // --- ARTISTS ---
-                    // TPE1, TCOM, TCON → array of strings
-                    // TPE2, TPE3, TPE4, TEXT → plain string
-                    if (T.artist)       writer.setFrame('TPE1', [T.artist]);
+                    if (T.artist) writer.setFrame('TPE1', [T.artist]);
                     if (T.album_artist) writer.setFrame('TPE2', T.album_artist);
-                    if (T.composer)     writer.setFrame('TCOM', [T.composer]);
-                    if (T.lyricist)     writer.setFrame('TEXT', T.lyricist);   // string, NOT array
-                    if (T.conductor)    writer.setFrame('TPE3', T.conductor);
-                    if (T.remixer)      writer.setFrame('TPE4', T.remixer);
+                    if (T.composer) writer.setFrame('TCOM', [T.composer]);
+                    if (T.lyricist) writer.setFrame('TEXT', T.lyricist);
+                    if (T.conductor) writer.setFrame('TPE3', T.conductor);
+                    if (T.remixer) writer.setFrame('TPE4', T.remixer);
 
-                    // --- ALBUM ---
                     if (T.album) writer.setFrame('TALB', T.album);
                     if (T.disc) {
                         const discStr = T.disc_total ? `${T.disc}/${T.disc_total}` : T.disc;
                         writer.setFrame('TPOS', discStr);
                     }
 
-                    // --- DATE --- TYER expects INTEGER
                     if (T.year) writer.setFrame('TYER', parseInt(T.year, 10));
-
-                    // --- GENRE → array ---
                     if (T.genre) writer.setFrame('TCON', [T.genre]);
 
-                    // --- RIGHTS ---
                     if (T.copyright) writer.setFrame('TCOP', T.copyright);
                     if (T.publisher) writer.setFrame('TPUB', T.publisher);
-                    if (T.isrc)      writer.setFrame('TSRC', T.isrc);
-                    if (T.language)  writer.setFrame('TLAN', T.language);   // supported — string
+                    if (T.isrc) writer.setFrame('TSRC', T.isrc);
+                    if (T.language) writer.setFrame('TLAN', T.language);
 
-                    // --- BPM → INTEGER, KEY → string ---
                     if (T.bpm) writer.setFrame('TBPM', parseInt(T.bpm, 10));
                     if (T.key) writer.setFrame('TKEY', T.key);
 
-                    // --- EXTRA FIELDS via TXXX (user-defined) ---
-                    if (T.mood)            writer.setFrame('TXXX', { description: 'Mood',            value: T.mood });
+                    if (T.mood) writer.setFrame('TXXX', { description: 'Mood', value: T.mood });
                     if (T.original_artist) writer.setFrame('TXXX', { description: 'Original Artist', value: T.original_artist });
-                    if (T.original_year)   writer.setFrame('TXXX', { description: 'Original Year',   value: T.original_year });
-                    if (T.encoded_by)      writer.setFrame('TXXX', { description: 'Encoded by',      value: T.encoded_by });
-                    if (T.encoding_tool)   writer.setFrame('TXXX', { description: 'Encoding tool',   value: T.encoding_tool });
-                    if (T.url)             writer.setFrame('TXXX', { description: 'URL',             value: T.url });
-                    if (T.cover_path)      writer.setFrame('TXXX', { description: 'CoverPath',       value: T.cover_path });
+                    if (T.original_year) writer.setFrame('TXXX', { description: 'Original Year', value: T.original_year });
+                    if (T.encoded_by) writer.setFrame('TXXX', { description: 'Encoded by', value: T.encoded_by });
+                    if (T.encoding_tool) writer.setFrame('TXXX', { description: 'Encoding tool', value: T.encoding_tool });
+                    if (T.url) writer.setFrame('TXXX', { description: 'URL', value: T.url });
+                    if (T.cover_path) writer.setFrame('TXXX', { description: 'CoverPath', value: T.cover_path });
 
-                    // --- COMMENT ---
                     if (T.comment) writer.setFrame('COMM', { language: lang, description: '', text: T.comment });
 
-                    // --- LYRICS ---
                     if (lyricsText && lyricsText.trim().length > 0) {
                         writer.setFrame('USLT', { language: lang, description: 'Lyrics', lyrics: lyricsText });
                     }
 
-                    // --- URL LINK FRAMES (plain string) ---
-                    if (T.url_artist)       writer.setFrame('WOAR', T.url_artist);
+                    if (T.url_artist) writer.setFrame('WOAR', T.url_artist);
                     if (T.url_audio_source) writer.setFrame('WOAS', T.url_audio_source);
-                    if (T.url_publisher)    writer.setFrame('WPUB', T.url_publisher);
+                    if (T.url_publisher) writer.setFrame('WPUB', T.url_publisher);
 
                     writer.addTag();
                     const taggedBlob = new Blob([writer.arrayBuffer], { type: 'audio/mpeg' });
@@ -1432,11 +1624,11 @@ function getCurrentHostnameHash(host) {
         GM_xmlhttpRequest({ method: 'GET', url, responseType: 'blob', onload: r => { try { const blobUrl = URL.createObjectURL(r.response); const a = Object.assign(document.createElement('a'), { href: blobUrl, download: filename, style: 'display:none' }); document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(blobUrl); a.remove(); }, 3000); addLog(`OK blob [${index + 1}/${total}]`, '#22c55e'); resolve('ok'); } catch (e) { addLog(`ERR: ${e.message}`, '#ef4444'); resolve('error'); } }, onerror: () => { addLog(`NET ERR [${index + 1}/${total}]`, '#ef4444'); resolve('error'); } });
     }
 
-    async function waitForGenerations() {
+    async function waitForGenerations(maxAttempts = 120) {
         addLog('Waiting for these damn generations to finish...', '#f59e0b');
         setStatus('Waiting for generations. Tap your fingers...');
         let attempts = 0;
-        while (attempts < 120) {
+        while (attempts < maxAttempts) {
             try {
                 const tracks = await fetchTracks(15);
                 if (!tracks || !tracks.length) return false;
@@ -1500,8 +1692,8 @@ function getCurrentHostnameHash(host) {
         const ok = await runDownload(n, fmt, currentAccount);
         if (ok) {
             if (auto.active && currentAccount) {
-                markCurrentAccountDoneIfOutOfCredits();
-                addLog(`Auto-marked "${currentAccount.name || currentAccount.email}" status. Next.`, '#22c55e');
+                markAccountDone(auto.currentIdx);
+                addLog(`Auto-marked "${currentAccount.name || currentAccount.email}" as done. Next.`, '#22c55e');
             }
 
             const autoNext = document.getElementById('snd-auto-next')?.checked;
@@ -1567,18 +1759,8 @@ function getCurrentHostnameHash(host) {
         const el = document.getElementById('snd-credits');
         if (el && credits !== null) el.textContent = `Credits: ${credits}`;
 
-        const auto = getAuto();
-        const accounts = getAccounts();
-        const acc = (auto.active || auto.pendingLogin) && auto.currentIdx !== undefined ? accounts[auto.currentIdx] : null;
-
-        let outOfCreditsTriggered = false;
-        if (credits !== null) {
-            if (credits < 10) outOfCreditsTriggered = true;
-            else if (credits <= 50 && acc && !acc.firstWaveDone) outOfCreditsTriggered = true;
-        }
-
-        if (!outOfCreditsTriggered) outOfCreditsLogged = false;
-        if (outOfCreditsTriggered) {
+        if (credits !== null && credits >= 10) outOfCreditsLogged = false;
+        if (credits !== null && credits < 10) {
             const nInput = document.getElementById('snd-n');
             if (nInput) {
                 const currentN = parseInt(nInput.value) || 10;
@@ -1590,8 +1772,9 @@ function getCurrentHostnameHash(host) {
             }
             if (!outOfCreditsLogged) {
                 outOfCreditsLogged = true;
-                addLog('Out of credits or first wave finished!', '#ef4444');
+                addLog('Out of credits! You broke bastard.', '#ef4444');
                 if (spamState.running) stopSpam('out-of-credits');
+                if (getAuto().chainActive) return credits;
                 markCurrentAccountDoneIfOutOfCredits();
 
                 const autoNext = document.getElementById('snd-auto-next')?.checked;
@@ -1608,22 +1791,12 @@ function getCurrentHostnameHash(host) {
         const accounts = getAccounts();
         let marked = false;
         if ((auto.active || auto.pendingLogin) && auto.currentIdx !== undefined && accounts[auto.currentIdx]) {
-            let acc = accounts[auto.currentIdx];
-            if (!acc.done) {
-                if (!acc.firstWaveDone) {
-                    acc.firstWaveDone = true;
-                    acc.cooldownUntil = Date.now() + 30 * 60 * 1000;
-                    saveAccounts(accounts);
-                    addLog(`First wave finished for "${acc.email}". Cooldown 30 mins started.`, '#f59e0b');
-                    renderAccounts();
-                    marked = true;
-                } else {
-                    acc.done = true;
-                    saveAccounts(accounts);
-                    addLog(`Marked active account "${acc.email}" as Done.`, '#ef4444');
-                    renderAccounts();
-                    marked = true;
-                }
+            if (!accounts[auto.currentIdx].done) {
+                accounts[auto.currentIdx].done = true;
+                saveAccounts(accounts);
+                addLog(`Marked active account "${accounts[auto.currentIdx].email}" as Done.`, '#ef4444');
+                renderAccounts();
+                marked = true;
             }
         }
         if (!marked) {
@@ -1631,19 +1804,10 @@ function getCurrentHostnameHash(host) {
             if (loggedEmails.length) {
                 const matchIdx = accounts.findIndex(acc => loggedEmails.includes(normalizeEmail(acc.email)));
                 if (matchIdx !== -1 && !accounts[matchIdx].done) {
-                    let acc = accounts[matchIdx];
-                    if (!acc.firstWaveDone) {
-                        acc.firstWaveDone = true;
-                        acc.cooldownUntil = Date.now() + 30 * 60 * 1000;
-                        saveAccounts(accounts);
-                        addLog(`First wave finished for "${acc.email}". Cooldown 30 mins started.`, '#f59e0b');
-                        renderAccounts();
-                    } else {
-                        acc.done = true;
-                        saveAccounts(accounts);
-                        addLog(`Marked logged account "${acc.email}" as Done.`, '#ef4444');
-                        renderAccounts();
-                    }
+                    accounts[matchIdx].done = true;
+                    saveAccounts(accounts);
+                    addLog(`Marked logged account "${accounts[matchIdx].email}" as Done.`, '#ef4444');
+                    renderAccounts();
                 }
             }
         }
@@ -1652,6 +1816,7 @@ function getCurrentHostnameHash(host) {
     async function startSpam() {
         if (!capturedAuth) { setStatus('No auth! Log in first.'); return; }
         if (spamState.running) { stopSpam('restart'); return; }
+        if (getAuto().chainActive) { addLog('Auto chain is running — stop it (checkbox) before manual spam.', '#f59e0b'); setStatus('Chain active. Stop chain first.'); return; }
         outOfCreditsLogged = false;
         const saved = getSpamSettings();
         const burstSize = parseInt(document.getElementById('snd-burst-size')?.value) || saved.burstSize || 5;
@@ -1682,6 +1847,7 @@ function getCurrentHostnameHash(host) {
     function stopSpam(reason = 'manual') {
         if (!spamState.running) return;
         spamState.running = false;
+        spamState.cooldownUntil = 0;
         if (spamState.burstTimer) clearTimeout(spamState.burstTimer);
         if (spamState.cooldownTimer) clearTimeout(spamState.cooldownTimer);
         spamState.burstTimer = null; spamState.cooldownTimer = null;
@@ -1702,24 +1868,19 @@ function getCurrentHostnameHash(host) {
             setStatus(`Hammering: G${group}/${spamState.totalGroups} B${burstInGroup}/${spamState.burstsPerGroup}...`);
             addLog(`Group ${group} Burst ${burstInGroup} (${spamState.burstSize} clicks)`, '#d4a574');
 
-            const findCreateBtn = () => {
-                const candidates = [...document.querySelectorAll('button, [role="button"]')];
-                return candidates.find(b => /^create$/i.test(b.textContent.trim()) && !isInsideSearchOrHeader(b)) ||
-                    candidates.find(b => /create/i.test(b.textContent.trim()) && b.type !== 'reset' && !isInsideSearchOrHeader(b)) ||
-                    document.querySelector('[data-testid="create-button"]') ||
-                    null;
-            };
-
             for (let i = 0; i < spamState.burstSize; i++) {
                 if (!spamState.running || spamState.outOfCredits) break;
-                const btn = findCreateBtn();
-                if (!btn) {
-                    addLog(`Create button MIA (G${group} B${burstInGroup}/${i + 1}). Pausing for a sec instead of crying about it.`, '#f59e0b');
-                    spamState.burstTimer = setTimeout(() => { if (spamState.running) fireBurst(); }, 1500);
+                const creditsBefore = await fetchCredits();
+                const res = await clickCreateSmart(creditsBefore);
+                if (res === 'cooldown') {
+                    addLog('Cooldown caught mid-burst. Waiting it out...', '#f59e0b');
+                    const waitMs = Math.max(1000, (spamState.cooldownUntil || Date.now()) - Date.now());
+                    updateSpamStatusDisplay('Cooldown ' + mmss(Math.ceil(waitMs / 1000)) + ' left...');
+                    spamState.burstTimer = setTimeout(() => { spamState.burstTimer = null; if (spamState.running) fireBurst(); }, waitMs);
                     return;
                 }
-                btn.click();
-                await sleep(spamState.burstInterval);
+                if (res === 'nocredits') { await updateCreditsDisplay(); return; }
+                if (res === 'ok') await sleep(Math.min(spamState.burstInterval, 2000));
             }
 
             if (!spamState.running) return;
@@ -1734,8 +1895,9 @@ function getCurrentHostnameHash(host) {
                 spamState.currentGroup++;
                 spamState.currentBurstInGroup = 1;
                 if (spamState.currentGroup <= spamState.totalGroups) {
-                    updateSpamStatusDisplay(`Cooldown ${spamState.cooldown}s before next group...`);
-                    spamState.cooldownTimer = setTimeout(() => { spamState.cooldownTimer = null; if (spamState.running) fireBurst(); }, spamState.cooldown * 1000);
+                    const waitMs = (spamState.cooldownUntil && spamState.cooldownUntil > Date.now()) ? (spamState.cooldownUntil - Date.now()) : spamState.cooldown * 1000;
+                    updateSpamStatusDisplay(`Cooldown ${Math.ceil(waitMs / 1000)}s before next group...`);
+                    spamState.cooldownTimer = setTimeout(() => { spamState.cooldownTimer = null; if (spamState.running) fireBurst(); }, waitMs);
                 } else {
                     stopSpam('completed');
                 }
@@ -1749,7 +1911,11 @@ function getCurrentHostnameHash(host) {
     function updateSpamStatusDisplay(extra = '') {
         const el = document.getElementById('snd-spam-status');
         if (!el) return;
-        if (!spamState.running) { el.textContent = 'Ready'; return; }
+        if (spamState.cooldownUntil && spamState.cooldownUntil > Date.now()) {
+            el.textContent = 'CD ' + mmss(Math.ceil((spamState.cooldownUntil - Date.now()) / 1000)) + (extra ? ' ' + extra : '');
+            return;
+        }
+        if (!spamState.running) { el.textContent = extra || 'Ready'; return; }
         const g = spamState.currentGroup || 1;
         const b = spamState.currentBurstInGroup || 1;
         el.textContent = `G${g}/${spamState.totalGroups} B${b}/${spamState.burstsPerGroup}` + (extra ? ' ' + extra : '');
@@ -2021,6 +2187,11 @@ function getCurrentHostnameHash(host) {
               <input type="checkbox" id="snd-auto-next" checked style="width:auto;"/>
               <label for="snd-auto-next" style="margin:0;color:#C0C0C0;font-size:12px;">Auto next 0 credits</label>
             </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <input type="checkbox" id="snd-auto-chain" checked style="width:auto;"/>
+              <label for="snd-auto-chain" style="margin:0;color:#C0C0C0;font-size:12px;" title="Two-circle auto chain: first 50 credits per account (no waiting), then cooldown rounds with 10-min waits">Auto chain (2 circles)</label>
+              <span id="snd-circle-ind" style="font-size:10px;color:#178CFC;margin-left:auto;font-weight:700;">C1</span>
+            </div>
             <div id="snd-bar-wrap" style="background:#202020;border-radius:2px;height:4px;margin-bottom:8px;overflow:hidden;display:none;">
               <div id="snd-bar" style="height:100%;width:0%;background:#178CFC;border-radius:2px;transition:width 180ms;"></div>
             </div>
@@ -2042,10 +2213,7 @@ function getCurrentHostnameHash(host) {
               <button id="snd-archive-toggle" class="snd-archive-toggle" style="background:#1E1E1E;color:#C0C0C0;border:1px solid #808080;border-radius:2px;padding:4px 8px;font-size:11px;">Show archive</button>
             </div>
             <div id="snd-acc-panel" style="max-height:330px;overflow-y:auto;margin-bottom:8px;"></div>
-            <button id="snd-add-acc" style="width:100%;background:#1E1E1E;color:#178CFC;border:1px dashed #808080;border-radius:2px;padding:6px 0;font-size:12px;margin-bottom:8px;">+ Add Account</button>
-            <div style="text-align:center;margin-top:8px;">
-              <a href="https://buymeacoffee.com/vacuum34" target="_blank" style="color:#FFDD00;font-size:11px;text-decoration:none;font-weight:bold;">🤍 Support developer</a>
-            </div>
+            <button id="snd-add-acc" style="width:100%;background:#1E1E1E;color:#178CFC;border:1px dashed #808080;border-radius:2px;padding:6px 0;font-size:12px;">+ Add Account</button>
           </div>
           <div id="snd-panel-tpl" style="padding:12px;display:none;">
             <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
@@ -2124,6 +2292,32 @@ function getCurrentHostnameHash(host) {
             anBtn.checked = GM_getValue('snd_auto_next', true);
             anBtn.onchange = () => GM_setValue('snd_auto_next', anBtn.checked);
         }
+        const acBtn = document.getElementById('snd-auto-chain');
+        if (acBtn) {
+            acBtn.checked = GM_getValue('snd_auto_chain', true);
+            acBtn.onchange = () => {
+                GM_setValue('snd_auto_chain', acBtn.checked);
+                const autoNow = getAuto();
+                if (acBtn.checked) {
+                    saveAuto({ ...autoNow, chainActive: true, chainEnabled: true, circle: Number(autoNow.circle || 1) });
+                    addLog('Auto chain enabled. Kicking off...', '#22c55e');
+                    if (isSunoCreatePath() && capturedAuth) setTimeout(() => runAutoChain(), 1500);
+                } else {
+                    saveAuto({ ...autoNow, chainActive: false });
+                    addLog('Auto chain disabled.', '#f59e0b');
+                }
+            };
+        }
+        setInterval(() => {
+            const ind = document.getElementById('snd-circle-ind');
+            if (ind) ind.textContent = 'C' + (getAuto().circle || 1);
+            document.querySelectorAll('[data-cd-until]').forEach(el => {
+                const until = parseInt(el.getAttribute('data-cd-until'), 10) || 0;
+                const left = until - Date.now();
+                if (left > 0) { el.textContent = 'CD ' + mmss(Math.ceil(left / 1000)); el.style.display = ''; }
+                else if (el.textContent) { el.textContent = ''; el.style.display = 'none'; }
+            });
+        }, 1000);
 
         let collapsed = widgetCollapsed;
         const bodyEl = document.getElementById('snd-body');
@@ -2161,10 +2355,10 @@ function getCurrentHostnameHash(host) {
         };
 
         const tabMain = document.getElementById('snd-tab-main');
-        const tabTpl  = document.getElementById('snd-tab-tpl');
+        const tabTpl = document.getElementById('snd-tab-tpl');
         const tabTags = document.getElementById('snd-tab-tags');
         const panelMain = document.getElementById('snd-panel-main');
-        const panelTpl  = document.getElementById('snd-panel-tpl');
+        const panelTpl = document.getElementById('snd-panel-tpl');
         const panelTags = document.getElementById('snd-panel-tags');
         function switchTab(active) {
             [tabMain, tabTpl, tabTags].forEach(t => t.classList.remove('active'));
@@ -2174,7 +2368,7 @@ function getCurrentHostnameHash(host) {
             if (active.onShow) active.onShow();
         }
         tabMain.onclick = () => switchTab({ tab: tabMain, panel: panelMain, onShow: renderAccounts });
-        tabTpl.onclick  = () => switchTab({ tab: tabTpl,  panel: panelTpl,  onShow: renderTemplatesPanel });
+        tabTpl.onclick = () => switchTab({ tab: tabTpl, panel: panelTpl, onShow: renderTemplatesPanel });
         tabTags.onclick = () => switchTab({ tab: tabTags, panel: panelTags, onShow: renderTagsPanel });
 
         const auto = getAuto();
@@ -2207,7 +2401,21 @@ function getCurrentHostnameHash(host) {
         };
 
         if (capturedAuth) updateDot(); else tryGrabClerkToken();
-        const poll = setInterval(() => { if (capturedAuth) { clearInterval(poll); return; } tryGrabClerkToken(); }, 2000);
+
+        function maybeAutoKickChain() {
+            const autoKick = getAuto();
+            if (acBtn && acBtn.checked && !autoKick.chainActive && !(autoKick.active || autoKick.pendingLogin)
+                && isSunoCreatePath() && capturedAuth && getAccounts().some(a => a.enabled && !a.done)) {
+                saveAuto({ ...autoKick, chainActive: true, chainEnabled: true, circle: Number(autoKick.circle || 1) });
+                addLog('Auto chain (2 circles) armed. Starting round...', '#22c55e');
+                setTimeout(() => runAutoChain(), 2500);
+            }
+        }
+        maybeAutoKickChain();
+        const poll = setInterval(() => {
+            if (capturedAuth) { clearInterval(poll); maybeAutoKickChain(); return; }
+            tryGrabClerkToken();
+        }, 2000);
 
         let drag = false, ox = 0, oy = 0, wRect = null, isTicking = false;
 
@@ -2327,20 +2535,20 @@ function getCurrentHostnameHash(host) {
         if (!panel) return;
         const T = getTagSettings();
         const now = new Date();
-        const autoYear  = String(now.getFullYear());
+        const autoYear = String(now.getFullYear());
         const autoMonth = String(now.getMonth() + 1).padStart(2, '0');
 
-        const field = (label, key, value, hint, type='text') => `
+        const field = (label, key, value, hint, type = 'text') => `
             <div style="margin-bottom:8px;">
-                <label style="font-size:11px;color:#969696;display:block;margin-bottom:2px;" title="${hint||''}">${label}</label>
-                <input type="${type}" data-tagkey="${key}" value="${parseHtml(String(value||''))}"
+                <label style="font-size:11px;color:#969696;display:block;margin-bottom:2px;" title="${hint || ''}">${label}</label>
+                <input type="${type}" data-tagkey="${key}" value="${parseHtml(String(value || ''))}"
                     style="width:100%;background:#0B0B0B;color:#C0C0C0;border:1px solid #808080;border-radius:2px;padding:5px 7px;font-size:12px;box-sizing:border-box;"/>
             </div>`;
-        const textarea = (label, key, value, hint, rows=2) => `
+        const textarea = (label, key, value, hint, rows = 2) => `
             <div style="margin-bottom:8px;">
-                <label style="font-size:11px;color:#969696;display:block;margin-bottom:2px;" title="${hint||''}">${label}</label>
+                <label style="font-size:11px;color:#969696;display:block;margin-bottom:2px;" title="${hint || ''}">${label}</label>
                 <textarea data-tagkey="${key}" rows="${rows}"
-                    style="width:100%;background:#0B0B0B;color:#C0C0C0;border:1px solid #808080;border-radius:2px;padding:5px 7px;font-size:12px;resize:vertical;box-sizing:border-box;">${parseHtml(String(value||''))}</textarea>
+                    style="width:100%;background:#0B0B0B;color:#C0C0C0;border:1px solid #808080;border-radius:2px;padding:5px 7px;font-size:12px;resize:vertical;box-sizing:border-box;">${parseHtml(String(value || ''))}</textarea>
             </div>`;
         const sect = (title) => `<div style="font-size:11px;font-weight:700;color:#808080;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;border-bottom:1px solid #2a2a2a;padding-bottom:3px;">${title}</div>`;
         const yearLocked = T._year_locked || false;
@@ -2356,7 +2564,7 @@ function getCurrentHostnameHash(host) {
             <div style="background:#1a1a0a;border:1px solid #444;border-radius:2px;padding:6px 8px;margin-bottom:10px;font-size:11px;color:#c9a13a;">
                 ⚡ Year &amp; Month auto-update every session.
                 <label style="margin-left:8px;cursor:pointer;color:#C0C0C0;">
-                    <input type="checkbox" id="snd-tags-yearlock" ${yearLocked?'checked':''} style="width:auto;vertical-align:middle;margin-right:3px;"/>
+                    <input type="checkbox" id="snd-tags-yearlock" ${yearLocked ? 'checked' : ''} style="width:auto;vertical-align:middle;margin-right:3px;"/>
                     Lock year/month
                 </label>
             </div>
@@ -2407,7 +2615,6 @@ function getCurrentHostnameHash(host) {
             saved._year_locked = document.getElementById('snd-tags-yearlock').checked;
             saveTagSettings(saved);
             addLog('Tags saved. All downloads will use these from now.', '#22c55e');
-            // Flash button feedback
             const btn = document.getElementById('snd-tags-save');
             if (btn) { const orig = btn.textContent; btn.textContent = 'Saved!'; setTimeout(() => { btn.textContent = orig; }, 1200); }
         };
@@ -2515,17 +2722,12 @@ function getCurrentHostnameHash(host) {
             const content = document.createElement('div');
             content.style.cssText = 'flex:1;min-width:0;';
             const nameDisplay = acc.name || acc.email;
-            let cooldownBadge = '';
-            if (acc.cooldownUntil && Date.now() < acc.cooldownUntil) {
-                const waitMins = Math.ceil((acc.cooldownUntil - Date.now()) / 60000);
-                cooldownBadge = ` <span style="color:#f59e0b;font-size:10px;">[WAIT ${waitMins}m]</span>`;
-            }
             const nameClass = acc.done ? 'snd-done-text' : '';
             content.innerHTML = `
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
                     <div style="display:flex;align-items:center;gap:6px;">
                         <span style="font-size:14px;">${acc.provider === 'google' ? 'G' : 'M'}</span>
-                        <span class="${nameClass}" style="font-size:12px;font-weight:600;color:#C0C0C0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${parseHtml(acc.email)}">${parseHtml(nameDisplay)}${cooldownBadge}</span>
+                        <span class="${nameClass}" style="font-size:12px;font-weight:600;color:#C0C0C0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${parseHtml(acc.email)}">${parseHtml(nameDisplay)}</span>
                     </div>
                     <div style="display:flex;gap:4px;align-items:center;">
                         <button data-action="login" data-idx="${idx}" title="Login as this account" style="background:#1E1E1E;color:#C0C0C0;font-size:10px;padding:3px 6px;">Login</button>
@@ -2538,6 +2740,8 @@ function getCurrentHostnameHash(host) {
                 <div style="font-size:11px;color:#969696;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     <span>${parseHtml(acc.email)}</span>
                     <span>${(acc.format || 'mp3').toUpperCase()}</span>
+                    ${acc.done ? '' : (acc.first50Done ? '<span style="color:#f59e0b;" title="First 50 credits spent — Circle 2">C2</span>' : '<span style="color:#178CFC;" title="Circle 1 — first 50 credits pending">C1</span>')}
+                    ${acc.cooldownUntil > Date.now() ? `<span data-cd-until="${acc.cooldownUntil}" style="color:#ef4444;font-variant-numeric:tabular-nums;" title="Cooldown until ${new Date(acc.cooldownUntil).toLocaleTimeString()}"></span>` : ''}
                     ${acc.voice && acc.voice !== 'none' ? `<span class="${acc.voice === 'male' ? 'snd-voice-m' : 'snd-voice-f'}">${acc.voice === 'male' ? 'M' : 'F'}</span>` : ''}
                     ${acc.autoFill ? '<span style="color:#178CFC;">form</span>' : ''}
                     ${acc.songName ? `<span style="color:#C0C0C0;" title="Song name">${parseHtml(acc.songName)}</span>` : ''}
@@ -2831,8 +3035,11 @@ function getCurrentHostnameHash(host) {
                 if (auto.step === 'login_pending' && auto.oauthVisited) completeOAuthLogin();
                 else setTimeout(() => checkSunoCachedLogin('boot'), 500);
             }
-            if (isSunoSigninPath() && (auto.active || auto.pendingLogin)) setTimeout(() => handleSunoSignin(), 2000);
-            initEmergencyUI();
+        if (isSunoSigninPath() && (auto.active || auto.pendingLogin)) setTimeout(() => handleSunoSignin(), 2000);
+        if (auto.chainActive && !(auto.active || auto.pendingLogin) && isSunoCreatePath() && getAccounts().some(a => a.enabled && !a.done)) {
+            setTimeout(() => runAutoChain(), 2000);
+        }
+        initEmergencyUI();
         }
     }
 

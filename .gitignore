@@ -11,3 +11,9 @@ desktop.ini
 # IDE
 .vscode/
 .idea/
+
+# Session research dumps
+ce.txt
+ta.txt
+id3.js
+suno_com_page_source*.txt

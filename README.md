@@ -4,7 +4,7 @@
 
 **Tampermonkey userscript for [suno.com](https://suno.com)**
 
-[![Version](https://img.shields.io/badge/version-9.1.0-blue?style=flat-square)](suno_downloader1.js)
+[![Version](https://img.shields.io/badge/version-9.4.0-blue?style=flat-square)](suno_downloader1.js)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-compatible-00485B?style=flat-square&logo=tampermonkey)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [🤍 Support Developer](https://buymeacoffee.com/vacuum34)
@@ -91,6 +91,8 @@ No external servers. All data (accounts, tokens, settings) stays in Tampermonkey
 
 ## Changelog
 
+**v9.4.0** — API cooldown catch (429 hook, retry-after extraction), smart generation click (waits for credit drop), two-circle auto chain (C1: 50 credits + download 10; C2: cooldown rounds to 0 + download 10), account C1/C2 badges + cooldown countdown
+**v9.3.x** — Auth-helper reliability: Google chooser grace period, MS passkey/security-key suppression, MS watchdog loop cap, login restart guard (capped retries), lyrics injection fixes for Lexical editor
 **v9.1.0** — Full ID3v2 tagging (20+ frames), Tags tab UI, lyrics injection rewrite for Lexical editor, track title embedding  
 **v9.0.4** — Google OAuth watchdog rewrite  
 **v9.0.x** — Multi-account chain login, spam engine, templates, WAV support, export/import
