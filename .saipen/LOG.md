@@ -12,3 +12,4 @@
 - 18.07.26 18:55 [E-010] [parent: E-009] RUN: FIX — lyrics not injecting into Lexical editor. Synthesized more aggressive clipboardData override + beforeinput / textInput events to bypass React/Lexical synthetic event filters. version 9.3.4->9.3.5.
 - 19.08.26 04:50 [E-011] RUN: v9.3.6->9.4.0 — cooldown catch (API 429 hook fetch/XHR, retry-after extract, 600s fallback), smart click (wait gen confirm/credit-drop), two-circle auto chain (C1: 5 gens 50cr + dl 10 + next; C2: cooldown rounds to 0 + dl 10 + next), account badges C1/C2 + CD countdown, checkbox default ON. node --check + unit tests (parsers/classification/chain advance): PASS. Manual browser verify required.
 - 19.08.26 04:56 [E-012] RUN: validate.py -> PASS
+- 19.08.26 05:01 [E-013] [parent: E-012] RUN: ship v9.4.0 -> pushed 5e5a4db (branch master, tag v9.4.0)
