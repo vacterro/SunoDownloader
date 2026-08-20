@@ -4,6 +4,8 @@
 // @version      9.4.0
 // @description  Vintage Windows 95 dark redesign – bevels, MS Sans Serif, calm accessibility. Two-circle auto chain: first 50 credits per account, then smart cooldown rounds (API 429 catch).
 // @author       You & Claude & Pissed-off old man
+// @updateURL    https://raw.githubusercontent.com/vacterro/SunoDownloader/refs/heads/master/suno_downloader1.js
+// @downloadURL  https://raw.githubusercontent.com/vacterro/SunoDownloader/refs/heads/master/suno_downloader1.js
 // @match        https://suno.com/*
 // @match        https://accounts.google.com/*
 // @match        https://login.microsoftonline.com/*
