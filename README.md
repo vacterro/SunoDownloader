@@ -1,20 +1,20 @@
 <div align="center">
 
-# 🎵 Suno Downloader
+# Suno Downloader
 
-**Tampermonkey userscript for [suno.com](https://suno.com)**
+**Tampermonkey toolkit for multi-account Suno workflows, batch MP3/WAV downloads, metadata, templates, and local automation.**
 
-[![Version](https://img.shields.io/badge/version-9.4.0-blue?style=flat-square)](suno_downloader1.js)
-[![Tampermonkey](https://img.shields.io/badge/Tampermonkey-compatible-00485B?style=flat-square&logo=tampermonkey)](https://www.tampermonkey.net/)
+[![Version](https://img.shields.io/badge/version-9.4.0-D4B86A?style=flat-square)](suno_downloader1.js)
+[![Tampermonkey](https://img.shields.io/badge/Tampermonkey-userscript-00485B?style=flat-square&logo=tampermonkey&logoColor=white)](https://www.tampermonkey.net/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[🤍 Support Developer](https://buymeacoffee.com/vacuum34)
 
-Multi-account OAuth automation · Batch MP3/WAV download · Full ID3v2 tagging · Lyrics injection
+[**Source / install**](suno_downloader1.js) · [Screenshots](#screenshots) · [Troubleshooting](#troubleshooting) · [Issues](https://github.com/vacterro/SunoDownloader/issues)
+
+**Multi-account OAuth · Batch MP3/WAV · ID3v2 tagging · Lyrics/templates · Local state**
 
 </div>
 
 ---
-
 ## What it does
 
 A floating widget on suno.com that handles:
@@ -23,7 +23,7 @@ A floating widget on suno.com that handles:
 - **Batch download** — fetches the last N tracks per account as MP3 or WAV, waits for in-progress generations to finish, embeds metadata into every file
 - **Full ID3v2 tagging** — 20+ frames written into every MP3: artist, album, year/month (auto-updated), genre, mood, lyrics, comment, BPM, URLs, ISRC, and more
 - **Lyrics injection** — fills the Suno create form with lyrics + styles on login; uses a 3-tier approach to handle Suno's Lexical rich-text editor
-- **Spam engine** — fires song generation requests in configurable burst waves with cooldowns and auto-starts on fresh credits; two independent A/B profiles
+- **Generation scheduler** — fires song generation requests in configurable burst waves with cooldowns and auto-starts on fresh credits; two independent A/B profiles
 - **Tags tab** — edit all ID3 fields directly in the widget UI, no code touching needed
 
 ---
@@ -63,7 +63,7 @@ Supported frames: `TIT2 TPE1 TPE2 TCOM TEXT TPE3 TPE4 TALB TPOS TYER TDRC TORY T
 
 ---
 
-## Spam engine
+## Generation scheduler
 
 Fires requests in bursts → groups → repeat, with cooldown between groups. Configure burst size, interval, bursts per group, cooldown, and total groups. Profile A/B lets you switch between two configs instantly.
 
@@ -95,7 +95,7 @@ No external servers. All data (accounts, tokens, settings) stays in Tampermonkey
 **v9.3.x** — Auth-helper reliability: Google chooser grace period, MS passkey/security-key suppression, MS watchdog loop cap, login restart guard (capped retries), lyrics injection fixes for Lexical editor
 **v9.1.0** — Full ID3v2 tagging (20+ frames), Tags tab UI, lyrics injection rewrite for Lexical editor, track title embedding  
 **v9.0.4** — Google OAuth watchdog rewrite  
-**v9.0.x** — Multi-account chain login, spam engine, templates, WAV support, export/import
+**v9.0.x** — Multi-account chain login, generation scheduler, templates, WAV support, export/import
 
 ---
 
